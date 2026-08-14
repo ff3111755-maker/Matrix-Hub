@@ -1,0 +1,1155 @@
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local mouse = player:GetMouse()
+
+-- ============================================================
+-- VARIABLES GLOBALES
+-- ============================================================
+local GlobalVisualSettings = { AnimSpeedMultiplier = 1.0 }
+
+-- CONFIGURACIÓN ESP / AIMBOT / MOVIMIENTO / GLITCHES
+_G.G_ESPEnabled = false; _G.G_ESP_Name = true; _G.G_ESP_Level = true
+_G.G_ESP_Bounty = true; _G.G_ESP_Fruit = true; _G.G_ESP_Distance = true
+_G.G_ESP_HP = true; _G.G_ESP_TextSize = 12; _G.G_ESP_Highlight = false; _G.G_ESP_HighlightColor = "FF0000"
+
+local silentAimEnabled = false
+local silentPos = nil
+local cachedTarget = nil
+local selectedRange = 300
+local teamCheck = true
+local silentInstalled = false
+
+local NoclipEnabled = false
+local NoclipConn = nil
+
+local WalkOnWaterEnabled = false
+local WalkWaterPart = nil
+
+local PortalSoruEnabled = false
+local PortalSanguineCEnabled = false
+local PortalSanguineCTriggerMode = "PortalF"
+
+local antiLavaActive = false
+local antiLavaConnection = nil
+
+-- ============================================================
+-- 1. NOCLIP (SACRED AHK)
+-- ============================================================
+function SetNoclip(state)
+    NoclipEnabled = state
+    if state then
+        NoclipConn = RunService.Stepped:Connect(function()
+            local char = player.Character
+            if char and NoclipEnabled then
+                for _, part in pairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then part.CanCollide = false end
+                end
+            end
+        end)
+    else
+        if NoclipConn then NoclipConn:Disconnect(); NoclipConn = nil end
+        local char = player.Character
+        if char then
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanCollide = true end
+            end
+        end
+    end
+end
+
+player.CharacterAdded:Connect(function()
+    if NoclipEnabled then task.wait(0.5); SetNoclip(true) end
+end)
+
+-- ============================================================
+-- 2. WALK ON WATER (SACRED AHK)
+-- ============================================================
+local function getWaterPart()
+    if not WalkWaterPart or not WalkWaterPart.Parent then
+        WalkWaterPart = Instance.new("Part")
+        WalkWaterPart.Size = Vector3.new(200, 1, 200)
+        WalkWaterPart.Transparency = 1
+        WalkWaterPart.Anchored = true
+        WalkWaterPart.CanCollide = false
+        WalkWaterPart.Name = "SacredWaterPlatform"
+        WalkWaterPart.Parent = Workspace
+    end
+    return WalkWaterPart
+end
+
+spawn(function()
+    while true do
+        wait(0.15)
+        if WalkOnWaterEnabled then
+            local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+            local wp = getWaterPart()
+            if hrp and hrp.Position.Y >= 9.5 then
+                wp.Position = Vector3.new(hrp.Position.X, 9.2, hrp.Position.Z)
+                wp.CanCollide = true
+            else
+                wp.CanCollide = false
+            end
+        elseif WalkWaterPart and WalkWaterPart.Parent then
+            WalkWaterPart.CanCollide = false
+        end
+    end
+end)
+
+-- ============================================================
+-- 3. PORTAL COMBOS (SACRED AHK)
+-- ============================================================
+local function isHoldingPortalFruit()
+    local char = player.Character
+    if not char then return false end
+    local tool = char:FindFirstChildOfClass("Tool")
+    if tool then
+        local tName = string.lower(tool.Name)
+        if string.find(tName, "portal") or string.find(tName, "door") then return true end
+    end
+    return false
+end
+
+local function equipSanguineArt()
+    local char = player.Character
+    if not char then return nil end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return nil end
+    local tool = char:FindFirstChild("Sanguine Art") or char:FindFirstChild("Sanguine")
+    if not tool then
+        local bp = player:FindFirstChild("Backpack")
+        if bp then
+            for _, t in ipairs(bp:GetChildren()) do
+                local name = string.lower(t.Name)
+                if string.find(name, "sanguine") then
+                    hum:EquipTool(t)
+                    tool = t
+                    task.wait(0.1)
+                    break
+                end
+            end
+        end
+    end
+    return tool
+end
+
+local function equipPortalFruit()
+    local char = player.Character
+    if not char then return nil end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return nil end
+    local tool = char:FindFirstChild("Portal-Portal") or char:FindFirstChild("Portal Fruit") or char:FindFirstChild("Portal") or char:FindFirstChild("Door")
+    if not tool then
+        local bp = player:FindFirstChild("Backpack")
+        if bp then
+            for _, t in ipairs(bp:GetChildren()) do
+                local name = string.lower(t.Name)
+                if string.find(name, "portal") or string.find(name, "door") then
+                    hum:EquipTool(t)
+                    tool = t
+                    task.wait(0.1)
+                    break
+                end
+            end
+        end
+    end
+    return tool
+end
+
+local function doPortalCombo()
+    if not isHoldingPortalFruit() then
+        equipPortalFruit()
+        task.wait(0.08)
+    end
+    if not isHoldingPortalFruit() then return end
+    local function pressKey(kc)
+        VirtualInputManager:SendKeyEvent(true, kc, false, game)
+        task.wait(0.05)
+        VirtualInputManager:SendKeyEvent(false, kc, false, game)
+    end
+    pressKey(Enum.KeyCode.X)
+    task.wait(0.15)
+    pressKey(Enum.KeyCode.Z)
+end
+
+local function doPortalSanguineCCombo()
+    task.wait(0.25)
+    equipSanguineArt()
+    task.wait(0.1)
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.C, false, game)
+    task.wait(0.15)
+    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
+end
+
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.F then
+        if PortalSoruEnabled and isHoldingPortalFruit() then
+            task.spawn(doPortalCombo)
+        end
+        if PortalSanguineCEnabled then
+            task.spawn(doPortalSanguineCCombo)
+        end
+    end
+end)
+
+-- ============================================================
+-- 4. ANTI LAVA (SACRED AHK)
+-- ============================================================
+local function startAntiLava()
+    if antiLavaConnection then antiLavaConnection:Disconnect() end
+    local antiLavaTimer = 0
+    antiLavaConnection = RunService.Stepped:Connect(function(_, dt)
+        antiLavaTimer = antiLavaTimer + dt
+        if antiLavaTimer < 0.2 then return end
+        antiLavaTimer = 0
+        local char = player.Character
+        if not (char and antiLavaActive) then return end
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart"
+            and part.Name ~= "Torso" and part.Name ~= "UpperTorso"
+            and part.Name ~= "LowerTorso" and part.Name ~= "Head" then
+                part.CanTouch = false
+            end
+        end
+    end)
+end
+
+local function stopAntiLava()
+    if antiLavaConnection then antiLavaConnection:Disconnect(); antiLavaConnection = nil end
+end
+
+-- ============================================================
+-- SILENT AIM SIMPLE (HOOK FIRESERVER)
+-- ============================================================
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if not silentAimEnabled then cachedTarget = nil; continue end
+        pcall(function()
+            local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+            if not hrp then cachedTarget = nil; return end
+            local closest, closestDist = nil, selectedRange
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= player and p.Character then
+                    if not teamCheck or (player.Team ~= p.Team) then
+                        local eHRP = p.Character:FindFirstChild("HumanoidRootPart")
+                        local hum = p.Character:FindFirstChildOfClass("Humanoid")
+                        if eHRP and hum and hum.Health > 0 then
+                            local d = (eHRP.Position - hrp.Position).Magnitude
+                            if d < closestDist then closest = p; closestDist = d end
+                        end
+                    end
+                end
+            end
+            cachedTarget = closest
+        end)
+    end
+end)
+
+local function installSilentAim()
+    if silentInstalled then return end
+    silentInstalled = true
+    task.spawn(function()
+        while true do
+            task.wait(0.1)
+            if silentAimEnabled and cachedTarget then
+                pcall(function()
+                    local eHRP = cachedTarget.Character and cachedTarget.Character:FindFirstChild("HumanoidRootPart")
+                    silentPos = eHRP and eHRP.Position or nil
+                end)
+            else
+                silentPos = nil
+            end
+        end
+    end)
+    task.spawn(function()
+        local mt = getrawmetatable(game)
+        local oldNC = mt.__namecall
+        setreadonly(mt, false)
+        mt.__namecall = newcclosure(function(...)
+            local method = getnamecallmethod()
+            local args = {...}
+            if silentAimEnabled and silentPos and tostring(method) == "FireServer" and tostring(args[1]) == "RemoteEvent" then
+                if typeof(args[2]) == "Vector3" then args[2] = silentPos; return oldNC(unpack(args))
+                elseif typeof(args[2]) == "CFrame" then args[2] = CFrame.new(silentPos); return oldNC(unpack(args)) end
+            end
+            return oldNC(...)
+        end)
+        setreadonly(mt, true)
+    end)
+end
+installSilentAim()
+
+-- ============================================================
+-- ESP DE JUGADORES (ESTILO NEVAHUB)
+-- ============================================================
+local Number = math.random(1, 1000000)
+local PlayerEsp = false
+
+local function isnil(thing) return (thing == nil) end
+local function round(n) return math.floor(tonumber(n) + 0.5) end
+
+local function EspPly()
+    for _, v in next, game.Players:GetChildren() do
+        pcall(function()
+            if not isnil(v.Character) then
+                if PlayerEsp then
+                    if not isnil(v.Character.Head) and not v.Character.Head:FindFirstChild('NameEsp'..Number) then
+                        local bill = Instance.new('BillboardGui', v.Character.Head)
+                        bill.Name = 'NameEsp'..Number
+                        bill.ExtentsOffset = Vector3.new(0, 1, 0)
+                        bill.Size = UDim2.new(1, 200, 1, 30)
+                        bill.Adornee = v.Character.Head
+                        bill.AlwaysOnTop = true
+                        local name = Instance.new('TextLabel', bill)
+                        name.Font = Enum.Font.Code
+                        name.FontSize = "Size14"
+                        name.TextWrapped = true
+                        name.Size = UDim2.new(1, 0, 1, 0)
+                        name.TextYAlignment = 'Top'
+                        name.BackgroundTransparency = 1
+                        name.TextStrokeTransparency = 0.5
+                        name.Text = (v.Name .. ' \n' .. round((player.Character.Head.Position - v.Character.Head.Position).Magnitude / 3) .. ' M')
+                        if v.Team == player.Team then name.TextColor3 = Color3.new(0, 0, 254) else name.TextColor3 = Color3.new(255, 0, 0) end
+                    else
+                        if v.Character.Head:FindFirstChild('NameEsp'..Number) then
+                            local label = v.Character.Head['NameEsp'..Number].TextLabel
+                            label.Text = (v.Name .. ' | ' .. round((player.Character.Head.Position - v.Character.Head.Position).Magnitude / 3) .. ' M\nHealth : ' .. round(v.Character.Humanoid.Health * 100 / v.Character.Humanoid.MaxHealth) .. '%')
+                        end
+                    end
+                else
+                    if v.Character.Head:FindFirstChild('NameEsp'..Number) then v.Character.Head:FindFirstChild('NameEsp'..Number):Destroy() end
+                end
+            end
+        end)
+    end
+end
+
+-- ============================================================
+-- INTERFAZ MATRIXHUB // MATRIX PRO UI
+-- Full UI replacement - feature logic preserved
+-- ============================================================
+
+local COLORS = {
+    BG          = Color3.fromRGB(8, 11, 17),
+    SIDEBAR     = Color3.fromRGB(12, 16, 24),
+    PANEL       = Color3.fromRGB(15, 20, 29),
+    CARD        = Color3.fromRGB(19, 25, 36),
+    CARD_HOVER  = Color3.fromRGB(24, 31, 44),
+    BORDER      = Color3.fromRGB(39, 49, 66),
+    TEXT        = Color3.fromRGB(238, 243, 250),
+    MUTED       = Color3.fromRGB(126, 140, 158),
+    DIM         = Color3.fromRGB(82, 96, 116),
+    ACCENT      = Color3.fromRGB(72, 149, 255),
+    ACCENT_DARK = Color3.fromRGB(42, 103, 190),
+    GREEN       = Color3.fromRGB(62, 211, 148),
+    RED         = Color3.fromRGB(241, 83, 99),
+    WHITE       = Color3.fromRGB(255, 255, 255)
+}
+
+local Gui = Instance.new("ScreenGui")
+Gui.Name = "MatrixHubUI"
+Gui.ResetOnSpawn = false
+Gui.IgnoreGuiInset = true
+Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+Gui.Parent = player:WaitForChild("PlayerGui")
+
+local function addCorner(obj, radius)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, radius or 8)
+    c.Parent = obj
+    return c
+end
+
+local function addStroke(obj, color, thickness, transparency)
+    local s = Instance.new("UIStroke")
+    s.Color = color or COLORS.BORDER
+    s.Thickness = thickness or 1
+    s.Transparency = transparency or 0
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    s.Parent = obj
+    return s
+end
+
+local function label(parent, text, size, color, font)
+    local x = Instance.new("TextLabel")
+    x.BackgroundTransparency = 1
+    x.Text = text
+    x.TextSize = size or 11
+    x.TextColor3 = color or COLORS.TEXT
+    x.Font = font or Enum.Font.GothamMedium
+    x.TextXAlignment = Enum.TextXAlignment.Left
+    x.TextYAlignment = Enum.TextYAlignment.Center
+    x.Parent = parent
+    return x
+end
+
+local function button(parent, text, size, pos)
+    local b = Instance.new("TextButton")
+    b.Size = size
+    b.Position = pos
+    b.BackgroundColor3 = COLORS.CARD
+    b.BorderSizePixel = 0
+    b.Text = text
+    b.TextColor3 = COLORS.TEXT
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 10
+    b.AutoButtonColor = false
+    b.Parent = parent
+    addCorner(b, 7)
+    return b
+end
+
+-- Main window
+local Main = Instance.new("Frame")
+Main.Name = "Main"
+Main.Size = UDim2.fromOffset(680, 430)
+Main.Position = UDim2.new(0.5, -340, 0.5, -215)
+Main.BackgroundColor3 = COLORS.BG
+Main.BorderSizePixel = 0
+Main.ClipsDescendants = true
+Main.Active = true
+Main.Draggable = true
+Main.Parent = Gui
+addCorner(Main, 14)
+addStroke(Main, COLORS.BORDER, 1)
+
+-- Top bar
+local Top = Instance.new("Frame")
+Top.Size = UDim2.new(1, 0, 0, 66)
+Top.BackgroundColor3 = COLORS.SIDEBAR
+Top.BorderSizePixel = 0
+Top.Parent = Main
+
+local BrandIcon = Instance.new("Frame")
+BrandIcon.Size = UDim2.fromOffset(40, 40)
+BrandIcon.Position = UDim2.fromOffset(16, 13)
+BrandIcon.BackgroundColor3 = COLORS.ACCENT
+BrandIcon.BorderSizePixel = 0
+BrandIcon.Parent = Top
+addCorner(BrandIcon, 11)
+
+local BrandM = label(BrandIcon, "M", 20, COLORS.WHITE, Enum.Font.GothamBlack)
+BrandM.Size = UDim2.fromScale(1, 1)
+BrandM.TextXAlignment = Enum.TextXAlignment.Center
+
+local Brand = label(Top, "MATRIXHUB", 17, COLORS.TEXT, Enum.Font.GothamBlack)
+Brand.Position = UDim2.fromOffset(67, 10)
+Brand.Size = UDim2.fromOffset(190, 24)
+
+local Version = label(Top, "CONTROL PANEL  •  PRIVATE BUILD", 8, COLORS.MUTED, Enum.Font.GothamBold)
+Version.Position = UDim2.fromOffset(68, 34)
+Version.Size = UDim2.fromOffset(240, 16)
+
+local Online = label(Top, "●  ONLINE", 9, COLORS.GREEN, Enum.Font.GothamBold)
+Online.Position = UDim2.new(1, -160, 0, 13)
+Online.Size = UDim2.fromOffset(90, 18)
+Online.TextXAlignment = Enum.TextXAlignment.Right
+
+local PlayerName = label(Top, player.Name, 9, COLORS.MUTED, Enum.Font.GothamMedium)
+PlayerName.Position = UDim2.new(1, -220, 0, 33)
+PlayerName.Size = UDim2.fromOffset(150, 17)
+PlayerName.TextXAlignment = Enum.TextXAlignment.Right
+
+local MinimizeButton = button(Top, "—", UDim2.fromOffset(31, 31), UDim2.new(1, -44, 0, 18))
+MinimizeButton.TextSize = 14
+
+-- Sidebar
+local Sidebar = Instance.new("Frame")
+Sidebar.Position = UDim2.fromOffset(10, 76)
+Sidebar.Size = UDim2.fromOffset(154, 344)
+Sidebar.BackgroundColor3 = COLORS.SIDEBAR
+Sidebar.BorderSizePixel = 0
+Sidebar.Parent = Main
+addCorner(Sidebar, 11)
+addStroke(Sidebar, COLORS.BORDER, 1)
+
+local ModuleTitle = label(Sidebar, "MODULES", 8, COLORS.DIM, Enum.Font.GothamBold)
+ModuleTitle.Position = UDim2.fromOffset(14, 13)
+ModuleTitle.Size = UDim2.fromOffset(100, 18)
+
+local Profile = Instance.new("Frame")
+Profile.Position = UDim2.fromOffset(10, 296)
+Profile.Size = UDim2.new(1, -20, 0, 37)
+Profile.BackgroundColor3 = COLORS.CARD
+Profile.BorderSizePixel = 0
+Profile.Parent = Sidebar
+addCorner(Profile, 8)
+
+local ProfileDot = Instance.new("Frame")
+ProfileDot.Size = UDim2.fromOffset(7, 7)
+ProfileDot.Position = UDim2.fromOffset(11, 15)
+ProfileDot.BackgroundColor3 = COLORS.GREEN
+ProfileDot.BorderSizePixel = 0
+Profile.Parent = Profile
+addCorner(ProfileDot, 4)
+
+local ProfileText = label(Profile, "LOCAL CLIENT", 8, COLORS.MUTED, Enum.Font.GothamBold)
+ProfileText.Position = UDim2.fromOffset(25, 5)
+ProfileText.Size = UDim2.new(1, -32, 12, 0)
+
+local ProfileSub = label(Profile, "Ready", 8, COLORS.GREEN, Enum.Font.GothamMedium)
+ProfileSub.Position = UDim2.fromOffset(25, 18)
+ProfileSub.Size = UDim2.new(1, -32, 12, 0)
+
+local Tabs, Pages = {}, {}
+local tabNames = {"Visual", "Combat", "Misc", "Whitelist", "Teleport"}
+local tabIcons = {
+    Visual = "◉",
+    Combat = "✦",
+    Misc = "⚙",
+    Whitelist = "◇",
+    Teleport = "⌖"
+}
+local activeTabName = "Visual"
+
+for i, name in ipairs(tabNames) do
+    local tab = Instance.new("TextButton")
+    tab.Name = name .. "Tab"
+    tab.Size = UDim2.new(1, -20, 0, 43)
+    tab.Position = UDim2.fromOffset(10, 38 + (i - 1) * 48)
+    tab.BackgroundColor3 = COLORS.SIDEBAR
+    tab.BorderSizePixel = 0
+    tab.Text = ""
+    tab.AutoButtonColor = false
+    tab.Parent = Sidebar
+    addCorner(tab, 8)
+
+    local icon = label(tab, tabIcons[name], 14, COLORS.MUTED, Enum.Font.GothamBold)
+    icon.Position = UDim2.fromOffset(10, 0)
+    icon.Size = UDim2.fromOffset(26, 43)
+    icon.TextXAlignment = Enum.TextXAlignment.Center
+
+    local txt = label(tab, name, 10, COLORS.MUTED, Enum.Font.GothamBold)
+    txt.Position = UDim2.fromOffset(43, 0)
+    txt.Size = UDim2.new(1, -50, 43, 0)
+
+    local indicator = Instance.new("Frame")
+    indicator.Size = UDim2.fromOffset(3, 22)
+    indicator.Position = UDim2.new(1, -4, 0.5, -11)
+    indicator.BackgroundColor3 = COLORS.ACCENT
+    indicator.BorderSizePixel = 0
+    indicator.Visible = false
+    indicator.Parent = tab
+    addCorner(indicator, 2)
+
+    Tabs[name] = {
+        Button = tab,
+        Icon = icon,
+        Text = txt,
+        Indicator = indicator
+    }
+end
+
+-- Content panel
+local Content = Instance.new("Frame")
+Content.Position = UDim2.fromOffset(174, 76)
+Content.Size = UDim2.new(1, -184, 344, 0)
+Content.BackgroundColor3 = COLORS.PANEL
+Content.BorderSizePixel = 0
+Content.Parent = Main
+addCorner(Content, 11)
+addStroke(Content, COLORS.BORDER, 1)
+
+local HeaderTitle = label(Content, "VISUAL", 14, COLORS.TEXT, Enum.Font.GothamBlack)
+HeaderTitle.Position = UDim2.fromOffset(17, 13)
+HeaderTitle.Size = UDim2.fromOffset(250, 22)
+
+local HeaderSub = label(Content, "Player information, overlays and display options", 8, COLORS.MUTED, Enum.Font.GothamMedium)
+HeaderSub.Position = UDim2.fromOffset(18, 35)
+HeaderSub.Size = UDim2.fromOffset(360, 17)
+
+local HeaderLine = Instance.new("Frame")
+HeaderLine.Position = UDim2.fromOffset(17, 57)
+HeaderLine.Size = UDim2.new(1, -34, 0, 1)
+HeaderLine.BackgroundColor3 = COLORS.BORDER
+HeaderLine.BorderSizePixel = 0
+HeaderLine.Parent = Content
+
+local Body = Instance.new("Frame")
+Body.Position = UDim2.fromOffset(16, 68)
+Body.Size = UDim2.new(1, -32, 1, -80)
+Body.BackgroundTransparency = 1
+Body.Parent = Content
+
+local descriptions = {
+    Visual = "Player information, overlays and display options",
+    Combat = "Combat assistance, combos and movement",
+    Misc = "Utilities, automation and movement helpers",
+    Whitelist = "Player access controls",
+    Teleport = "Teleport destinations"
+}
+
+local function selectTab(name)
+    activeTabName = name
+    HeaderTitle.Text = string.upper(name)
+    HeaderSub.Text = descriptions[name] or ""
+
+    for n, data in pairs(Tabs) do
+        local selected = n == name
+        data.Button.BackgroundColor3 = selected and COLORS.CARD or COLORS.SIDEBAR
+        data.Icon.TextColor3 = selected and COLORS.ACCENT or COLORS.MUTED
+        data.Text.TextColor3 = selected and COLORS.TEXT or COLORS.MUTED
+        data.Indicator.Visible = selected
+        if Pages[n] then
+            Pages[n].Visible = selected
+        end
+    end
+end
+
+for name, data in pairs(Tabs) do
+    data.Button.MouseButton1Click:Connect(function()
+        selectTab(name)
+    end)
+end
+
+local function createToggle(parent, text, default, callback, description)
+    local height = description and 55 or 45
+
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, height)
+    row.BackgroundColor3 = COLORS.CARD
+    row.BorderSizePixel = 0
+    row.Parent = parent
+    addCorner(row, 8)
+
+    local rowStroke = addStroke(row, COLORS.BORDER, 1, 0.35)
+
+    local accent = Instance.new("Frame")
+    accent.Size = UDim2.fromOffset(2, description and 31 or 24)
+    accent.Position = UDim2.fromOffset(0, 7)
+    accent.BackgroundColor3 = COLORS.ACCENT
+    accent.BackgroundTransparency = default and 0 or 1
+    accent.BorderSizePixel = 0
+    accent.Parent = row
+    addCorner(accent, 2)
+
+    local lbl = label(row, text, 10, COLORS.TEXT, Enum.Font.GothamSemibold)
+    lbl.Position = UDim2.fromOffset(13, description and 8 or 0)
+    lbl.Size = UDim2.new(1, -76, description and 20 or height, 0)
+
+    if description then
+        local sub = label(row, description, 8, COLORS.MUTED, Enum.Font.GothamMedium)
+        sub.Position = UDim2.fromOffset(13, 28)
+        sub.Size = UDim2.new(1, -76, 15, 0)
+    end
+
+    local toggle = Instance.new("TextButton")
+    toggle.Size = UDim2.fromOffset(43, 23)
+    toggle.Position = UDim2.new(1, -56, 0.5, -11)
+    toggle.BackgroundColor3 = default and COLORS.ACCENT or COLORS.DIM
+    toggle.Text = ""
+    toggle.AutoButtonColor = false
+    toggle.BorderSizePixel = 0
+    toggle.Parent = row
+    addCorner(toggle, 12)
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.fromOffset(17, 17)
+    knob.Position = default and UDim2.new(1, -20, 0.5, -8) or UDim2.fromOffset(3, 3)
+    knob.BackgroundColor3 = COLORS.WHITE
+    knob.BorderSizePixel = 0
+    knob.Parent = toggle
+    addCorner(knob, 9)
+
+    local state = default
+
+    toggle.MouseEnter:Connect(function()
+        if not state then
+            TweenService:Create(row, TweenInfo.new(0.12), {BackgroundColor3 = COLORS.CARD_HOVER}):Play()
+        end
+    end)
+
+    toggle.MouseLeave:Connect(function()
+        TweenService:Create(row, TweenInfo.new(0.12), {BackgroundColor3 = COLORS.CARD}):Play()
+    end)
+
+    toggle.MouseButton1Click:Connect(function()
+        state = not state
+
+        TweenService:Create(toggle, TweenInfo.new(0.14), {
+            BackgroundColor3 = state and COLORS.ACCENT or COLORS.DIM
+        }):Play()
+
+        TweenService:Create(knob, TweenInfo.new(0.14, Enum.EasingStyle.Quad), {
+            Position = state and UDim2.new(1, -20, 0.5, -8) or UDim2.fromOffset(3, 3)
+        }):Play()
+
+        TweenService:Create(accent, TweenInfo.new(0.12), {
+            BackgroundTransparency = state and 0 or 1
+        }):Play()
+
+        if callback then
+            callback(state)
+        end
+    end)
+
+    return row
+end
+
+local function createPage(scrollable)
+    local page = Instance.new("Frame")
+    page.Name = "Page"
+    page.Size = UDim2.fromScale(1, 1)
+    page.BackgroundTransparency = 1
+    page.Visible = false
+    page.Parent = Body
+
+    local left, right
+
+    if scrollable then
+        left = Instance.new("ScrollingFrame")
+        right = Instance.new("ScrollingFrame")
+
+        for _, scroller in ipairs({left, right}) do
+            scroller.BackgroundTransparency = 1
+            scroller.BorderSizePixel = 0
+            scroller.ScrollBarThickness = 3
+            scroller.ScrollBarImageColor3 = COLORS.ACCENT
+            scroller.CanvasSize = UDim2.new()
+            scroller.AutomaticCanvasSize = Enum.AutomaticSize.Y
+            scroller.ScrollingDirection = Enum.ScrollingDirection.Y
+            scroller.Parent = page
+        end
+    else
+        left = Instance.new("Frame")
+        right = Instance.new("Frame")
+        left.BackgroundTransparency = 1
+        right.BackgroundTransparency = 1
+        left.Parent = page
+        right.Parent = page
+    end
+
+    left.Position = UDim2.fromScale(0, 0)
+    left.Size = UDim2.new(0.5, -5, 1, 0)
+
+    right.Position = UDim2.new(0.5, 5, 0, 0)
+    right.Size = UDim2.new(0.5, -5, 1, 0)
+
+    for _, column in ipairs({left, right}) do
+        local layout = Instance.new("UIListLayout")
+        layout.Padding = UDim.new(0, 7)
+        layout.SortOrder = Enum.SortOrder.LayoutOrder
+        layout.Parent = column
+    end
+
+    return page, left, right
+end
+
+-- MACRO BETA (integrado desde Ui.txt)
+-- ============================================================
+local MacroEnabled = false
+local MacroMode = "Soru"
+local MacroSlot1, MacroKey1 = 1, "Z"
+local MacroSlot2, MacroKey2 = 2, "X"
+local MacroSlot3, MacroKey3 = 3, "C"
+local MacroSlot4, MacroKey4 = 4, "V"
+local MacroDelay = 0.30
+local MacroExecuting = false
+local macroGui = nil
+local floatingTriggerGui = nil
+
+local function macroPressKey(kc, holdTime)
+    if not kc then return end
+    VirtualInputManager:SendKeyEvent(true, kc, false, game)
+    task.wait(holdTime or 0.05)
+    VirtualInputManager:SendKeyEvent(false, kc, false, game)
+end
+
+local function macroSafeEquip(slotNum)
+    local slotKeys = { [1] = Enum.KeyCode.One, [2] = Enum.KeyCode.Two, [3] = Enum.KeyCode.Three, [4] = Enum.KeyCode.Four }
+    local kc = slotKeys[slotNum]
+    if not kc then return end
+    macroPressKey(kc)
+    task.wait(0.05)
+    local char = player.Character
+    if not (char and char:FindFirstChildOfClass("Tool")) then
+        macroPressKey(kc)
+        task.wait(0.05)
+    end
+end
+
+local function executeMacroCombo()
+    local slots = {
+        {MacroSlot1, MacroKey1},
+        {MacroSlot2, MacroKey2},
+        {MacroSlot3, MacroKey3},
+        {MacroSlot4, MacroKey4},
+    }
+    for i, data in ipairs(slots) do
+        local slot, key = data[1], data[2]
+        if key and key ~= "OFF" then
+            if i == 1 or slots[i-1][1] ~= slot then macroSafeEquip(slot) end
+            local kc = Enum.KeyCode[key]
+            if kc then macroPressKey(kc) end
+            if i < #slots then task.wait(MacroDelay) end
+        end
+    end
+end
+
+function showFloatingComboTrigger(show)
+    if floatingTriggerGui then floatingTriggerGui:Destroy(); floatingTriggerGui = nil end
+    if not show then return end
+
+    floatingTriggerGui = Instance.new("ScreenGui")
+    floatingTriggerGui.Name = "MatrixHub_Macro_Floating_Combo"
+    floatingTriggerGui.ResetOnSpawn = false
+    floatingTriggerGui.Parent = player:WaitForChild("PlayerGui")
+
+    local floatBtn = Instance.new("TextButton", floatingTriggerGui)
+    floatBtn.Size = UDim2.new(0, 110, 0, 36)
+    floatBtn.Position = UDim2.new(0.85, -55, 0.7, 0)
+    floatBtn.BackgroundColor3 = COLORS.Accent
+    floatBtn.Text = "COMBO"
+    floatBtn.Font = Enum.Font.GothamBold
+    floatBtn.TextSize = 12
+    floatBtn.TextColor3 = Color3.fromRGB(255,255,255)
+    floatBtn.Active = true
+    floatBtn.Draggable = true
+    Instance.new("UICorner", floatBtn).CornerRadius = UDim.new(0, 8)
+
+    floatBtn.MouseButton1Down:Connect(function()
+        if MacroExecuting then return end
+        MacroExecuting = true
+        task.spawn(function()
+            while MacroExecuting and MacroEnabled and MacroMode == "Combo" do
+                executeMacroCombo()
+                task.wait(MacroDelay + 0.05)
+            end
+            MacroExecuting = false
+        end)
+    end)
+    floatBtn.MouseButton1Up:Connect(function() MacroExecuting = false end)
+    floatBtn.MouseLeave:Connect(function() MacroExecuting = false end)
+end
+
+function showMacroConfigUI()
+    if macroGui then macroGui:Destroy() end
+
+    macroGui = Instance.new("ScreenGui")
+    macroGui.Name = "MatrixHub_Macro_Config_UI"
+    macroGui.ResetOnSpawn = false
+    macroGui.Parent = player:WaitForChild("PlayerGui")
+
+    local main = Instance.new("Frame", macroGui)
+    main.Size = UDim2.new(0, 260, 0, 470)
+    main.Position = UDim2.new(0.5, -130, 0.15, 0)
+    main.BackgroundColor3 = Color3.fromRGB(18,18,26)
+    main.BackgroundTransparency = 0.1
+    main.Active = true
+    main.Draggable = true
+    Instance.new("UICorner", main).CornerRadius = UDim.new(0,10)
+    local stroke = Instance.new("UIStroke", main)
+    stroke.Color = COLORS.Accent
+    stroke.Thickness = 1.5
+
+    local title = Instance.new("TextLabel", main)
+    title.Size = UDim2.new(1,0,0,30)
+    title.BackgroundTransparency = 1
+    title.Text = "MACRO COMBO PRO (4 SLOTS)"
+    title.TextColor3 = COLORS.Accent
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 13
+
+    local closeBtn = Instance.new("TextButton", main)
+    closeBtn.Size = UDim2.new(0,24,0,24)
+    closeBtn.Position = UDim2.new(1,-28,0,4)
+    closeBtn.BackgroundTransparency = 1
+    closeBtn.Text = "X"
+    closeBtn.TextColor3 = Color3.fromRGB(255,80,80)
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 14
+    closeBtn.MouseButton1Click:Connect(function() macroGui:Destroy(); macroGui=nil end)
+
+    local function makeBtn(parent, text, pos, size)
+        local b = Instance.new("TextButton", parent)
+        b.Size=size; b.Position=pos; b.BackgroundColor3=Color3.fromRGB(40,40,45)
+        b.Text=text; b.TextColor3=Color3.fromRGB(255,255,255)
+        b.Font=Enum.Font.GothamBold; b.TextSize=11
+        Instance.new("UICorner", b).CornerRadius=UDim.new(0,6)
+        local st=Instance.new("UIStroke",b); st.Color=COLORS.Accent; st.Thickness=1
+        return b
+    end
+
+    local function setupSelector(yPos, labelText, defaultSlot, defaultKey, allowOff, onSelect)
+        local lbl=Instance.new("TextLabel",main)
+        lbl.Size=UDim2.new(0,200,0,18); lbl.Position=UDim2.new(0,10,0,yPos)
+        lbl.BackgroundTransparency=1; lbl.Text=labelText; lbl.TextColor3=Color3.fromRGB(255,255,255)
+        lbl.Font=Enum.Font.GothamBold; lbl.TextSize=11; lbl.TextXAlignment=Enum.TextXAlignment.Left
+        local selectedSlot, selectedKey=defaultSlot, defaultKey
+        local slotBtns={}; local xOff=10
+        for _,slot in ipairs({1,2,3,4}) do
+            local b=makeBtn(main,tostring(slot),UDim2.new(0,xOff,0,yPos+20),UDim2.new(0,40,0,24))
+            slotBtns[slot]=b
+            if slot==selectedSlot then b.BackgroundColor3=COLORS.Accent; b.TextColor3=Color3.fromRGB(15,10,20) end
+            b.MouseButton1Click:Connect(function()
+                selectedSlot=slot
+                for _,btn in pairs(slotBtns) do btn.BackgroundColor3=Color3.fromRGB(40,40,45); btn.TextColor3=Color3.fromRGB(255,255,255) end
+                b.BackgroundColor3=COLORS.Accent; b.TextColor3=Color3.fromRGB(15,10,20)
+                onSelect(selectedSlot,selectedKey)
+            end)
+            xOff=xOff+45
+        end
+        local keyBtns={}; xOff=10
+        local keyOptions={"Z","X","C","V","F"}; if allowOff then table.insert(keyOptions,"OFF") end
+        for _,key in ipairs(keyOptions) do
+            local w=(key=="OFF") and 42 or 32
+            local b=makeBtn(main,key,UDim2.new(0,xOff,0,yPos+46),UDim2.new(0,w,0,24)); keyBtns[key]=b
+            if key=="OFF" then b.TextColor3=Color3.fromRGB(255,80,80) end
+            if key==selectedKey then b.BackgroundColor3=(key=="OFF") and Color3.fromRGB(255,50,50) or COLORS.Accent; b.TextColor3=Color3.fromRGB(15,10,20) end
+            b.MouseButton1Click:Connect(function()
+                selectedKey=key
+                for k,btn in pairs(keyBtns) do btn.BackgroundColor3=Color3.fromRGB(40,40,45); btn.TextColor3=(k=="OFF") and Color3.fromRGB(255,80,80) or Color3.fromRGB(255,255,255) end
+                b.BackgroundColor3=(key=="OFF") and Color3.fromRGB(255,50,50) or COLORS.Accent; b.TextColor3=Color3.fromRGB(15,10,20)
+                onSelect(selectedSlot,selectedKey)
+            end)
+            xOff=xOff+w+4
+        end
+    end
+
+    setupSelector(32,"Habilidad 1:",MacroSlot1,MacroKey1,false,function(s,k) MacroSlot1=s; MacroKey1=k end)
+    setupSelector(112,"Habilidad 2:",MacroSlot2,MacroKey2,true,function(s,k) MacroSlot2=s; MacroKey2=k end)
+    setupSelector(192,"Habilidad 3:",MacroSlot3,MacroKey3,true,function(s,k) MacroSlot3=s; MacroKey3=k end)
+    setupSelector(272,"Habilidad 4:",MacroSlot4,MacroKey4,true,function(s,k) MacroSlot4=s; MacroKey4=k end)
+
+    local delayFrame=Instance.new("Frame",main); delayFrame.Size=UDim2.new(1,-20,0,30); delayFrame.Position=UDim2.new(0,10,0,356); delayFrame.BackgroundTransparency=1
+    local delayTitle=Instance.new("TextLabel",delayFrame); delayTitle.Size=UDim2.new(0,100,1,0); delayTitle.BackgroundTransparency=1; delayTitle.Text="Delay Combo:"; delayTitle.TextColor3=Color3.fromRGB(255,255,255); delayTitle.Font=Enum.Font.GothamBold; delayTitle.TextSize=11
+    local minusBtn=makeBtn(delayFrame,"-",UDim2.new(0,105,0,2),UDim2.new(0,28,0,26))
+    local valLabel=Instance.new("TextLabel",delayFrame); valLabel.Size=UDim2.new(0,65,0,26); valLabel.Position=UDim2.new(0,138,0,2); valLabel.BackgroundTransparency=1; valLabel.Text=string.format("%.2fs",MacroDelay); valLabel.TextColor3=Color3.fromRGB(0,255,170); valLabel.Font=Enum.Font.GothamBold; valLabel.TextSize=12
+    local plusBtn=makeBtn(delayFrame,"+",UDim2.new(0,208,0,2),UDim2.new(0,28,0,26))
+    minusBtn.MouseButton1Click:Connect(function() MacroDelay=math.max(0.05,math.floor((MacroDelay-0.05)*100+0.5)/100); valLabel.Text=string.format("%.2fs",MacroDelay) end)
+    plusBtn.MouseButton1Click:Connect(function() MacroDelay=math.min(0.50,math.floor((MacroDelay+0.05)*100+0.5)/100); valLabel.Text=string.format("%.2fs",MacroDelay) end)
+    local saveCloseBtn=makeBtn(main,"GUARDAR Y CERRAR",UDim2.new(0,10,0,405),UDim2.new(1,-20,0,34)); saveCloseBtn.BackgroundColor3=COLORS.Accent; saveCloseBtn.TextColor3=Color3.fromRGB(15,10,20)
+    saveCloseBtn.MouseButton1Click:Connect(function() macroGui:Destroy(); macroGui=nil end)
+end
+
+local function isFlashstepMacro(track)
+    local names={"FlashStepRegular","FlashStepDraco","FlashStep","Flashstep","Soru"}
+    local ids={"17555632156","18461649274","616006778","616010882","5403485593","5403491911"}
+    local n=string.lower(track.Name or "")
+    for _,name in ipairs(names) do if string.find(n,string.lower(name)) then return true end end
+    local id=track.Animation and tostring(track.Animation.AnimationId):match("%d+") or ""
+    for _,wanted in ipairs(ids) do if id==wanted then return true end end
+    return false
+end
+
+function executeSoruCombo()
+    if not MacroEnabled or MacroMode ~= "Soru" or MacroExecuting then return end
+    MacroExecuting=true
+    pcall(function()
+        macroSafeEquip(MacroSlot1); task.wait(0.06); if Enum.KeyCode[MacroKey1] then macroPressKey(Enum.KeyCode[MacroKey1],0.08) end
+        task.wait(MacroDelay)
+        if MacroSlot1~=MacroSlot2 then macroSafeEquip(MacroSlot2); task.wait(0.06) end; if Enum.KeyCode[MacroKey2] then macroPressKey(Enum.KeyCode[MacroKey2],0.08) end
+        task.wait(MacroDelay)
+        if MacroSlot2~=MacroSlot3 then macroSafeEquip(MacroSlot3); task.wait(0.06) end; if Enum.KeyCode[MacroKey3] then macroPressKey(Enum.KeyCode[MacroKey3],0.08) end
+        task.wait(MacroDelay)
+        if MacroSlot3~=MacroSlot4 then macroSafeEquip(MacroSlot4); task.wait(0.06) end; if Enum.KeyCode[MacroKey4] then macroPressKey(Enum.KeyCode[MacroKey4],0.08) end
+    end)
+    MacroExecuting=false
+end
+
+local function monitorCharMacro(char)
+    local hum=char:WaitForChild("Humanoid",5); if not hum then return end
+    hum.AnimationPlayed:Connect(function(track)
+        if MacroEnabled and MacroMode=="Soru" and isFlashstepMacro(track) then task.spawn(executeSoruCombo) end
+    end)
+end
+
+if player.Character then monitorCharMacro(player.Character) end
+player.CharacterAdded:Connect(monitorCharMacro)
+
+
+-- ============================================================
+-- PAGES / ALL ORIGINAL FEATURE CONTROLS
+-- ============================================================
+
+local visual, vl, vr = createPage(true)
+
+createToggle(vl, "ESP Player", PlayerEsp, function(v)
+    PlayerEsp = v
+
+    if not v then
+        for _, target in ipairs(Players:GetPlayers()) do
+            pcall(function()
+                if target.Character and target.Character:FindFirstChild("Head") then
+                    local esp = target.Character.Head:FindFirstChild("NameEsp" .. Number)
+                    if esp then
+                        esp:Destroy()
+                    end
+                end
+            end)
+        end
+    else
+        task.spawn(function()
+            while PlayerEsp do
+                EspPly()
+                task.wait()
+            end
+        end)
+    end
+end, "Names, distance and health information")
+
+local combat, cl, cr = createPage(true)
+
+createToggle(cl, "Silent Aim", silentAimEnabled, function(v)
+    silentAimEnabled = v
+    if not v then
+        cachedTarget = nil
+        silentPos = nil
+    end
+end, "Nearest target selection")
+
+createToggle(cl, "Portal Soru Combo", PortalSoruEnabled, function(v)
+    PortalSoruEnabled = v
+end, "F key trigger")
+
+createToggle(cl, "Portal Sanguine C", PortalSanguineCEnabled, function(v)
+    PortalSanguineCEnabled = v
+end, "F key trigger")
+
+createToggle(cl, "Noclip", NoclipEnabled, function(v)
+    SetNoclip(v)
+end, "Disable character collision")
+
+local misc, ml, mr = createPage(true)
+
+createToggle(ml, "Walk on Water", WalkOnWaterEnabled, function(v)
+    WalkOnWaterEnabled = v
+end, "Temporary water platform")
+
+createToggle(ml, "Anti Lava", antiLavaActive, function(v)
+    antiLavaActive = v
+    if v then
+        startAntiLava()
+    else
+        stopAntiLava()
+    end
+end, "Reduce lava contact")
+
+createToggle(ml, "Macro Beta", MacroEnabled, function(v)
+    MacroEnabled = v
+    if v then
+        showMacroConfigUI()
+        showFloatingComboTrigger(MacroMode == "Combo")
+    else
+        MacroExecuting = false
+        if macroGui then
+            macroGui:Destroy()
+            macroGui = nil
+        end
+        showFloatingComboTrigger(false)
+    end
+end, "Automated combo configuration")
+
+createToggle(ml, "Macro Combo Mode", MacroMode == "Combo", function(v)
+    MacroMode = v and "Combo" or "Soru"
+    if MacroEnabled then
+        showFloatingComboTrigger(v)
+    else
+        showFloatingComboTrigger(false)
+    end
+end, "Hold the floating trigger")
+
+local macroConfigBtn = button(ml, "  CONFIGURE MACRO  •  4 SLOTS", UDim2.new(1, 0, 0, 43), UDim2.new())
+macroConfigBtn.TextColor3 = COLORS.ACCENT
+macroConfigBtn.TextXAlignment = Enum.TextXAlignment.Left
+addStroke(macroConfigBtn, COLORS.BORDER, 1)
+macroConfigBtn.MouseButton1Click:Connect(showMacroConfigUI)
+
+local whitelist, wl, wr = createPage(false)
+
+local wlCard = Instance.new("Frame")
+wlCard.Size = UDim2.new(1, 0, 0, 82)
+wlCard.BackgroundColor3 = COLORS.CARD
+wlCard.BorderSizePixel = 0
+wlCard.Parent = wl
+addCorner(wlCard, 8)
+addStroke(wlCard, COLORS.BORDER, 1)
+
+local wlTitle = label(wlCard, "WHITELIST", 10, COLORS.TEXT, Enum.Font.GothamBold)
+wlTitle.Position = UDim2.fromOffset(14, 12)
+wlTitle.Size = UDim2.new(1, -28, 18, 0)
+
+local wlText = label(wlCard, "No whitelist controls configured.", 8, COLORS.MUTED, Enum.Font.GothamMedium)
+wlText.Position = UDim2.fromOffset(14, 34)
+wlText.Size = UDim2.new(1, -28, 18, 0)
+
+local teleport, tl, tr = createPage(false)
+
+local tpCard = Instance.new("Frame")
+tpCard.Size = UDim2.new(1, 0, 0, 82)
+tpCard.BackgroundColor3 = COLORS.CARD
+tpCard.BorderSizePixel = 0
+tpCard.Parent = tl
+addCorner(tpCard, 8)
+addStroke(tpCard, COLORS.BORDER, 1)
+
+local tpTitle = label(tpCard, "TELEPORT", 10, COLORS.TEXT, Enum.Font.GothamBold)
+tpTitle.Position = UDim2.fromOffset(14, 12)
+tpTitle.Size = UDim2.new(1, -28, 18, 0)
+
+local tpText = label(tpCard, "No teleport destinations configured.", 8, COLORS.MUTED, Enum.Font.GothamMedium)
+tpText.Position = UDim2.fromOffset(14, 34)
+tpText.Size = UDim2.new(1, -28, 18, 0)
+
+Pages.Visual = visual
+Pages.Combat = combat
+Pages.Misc = misc
+Pages.Whitelist = whitelist
+Pages.Teleport = teleport
+
+-- Minimized launcher
+local OpenBox = Instance.new("TextButton")
+OpenBox.Name = "OpenBox"
+OpenBox.Size = UDim2.fromOffset(56, 56)
+OpenBox.Position = UDim2.new(0, 18, 0.5, -28)
+OpenBox.BackgroundColor3 = COLORS.SIDEBAR
+OpenBox.Text = "M"
+OpenBox.TextColor3 = COLORS.ACCENT
+OpenBox.Font = Enum.Font.GothamBlack
+OpenBox.TextSize = 21
+OpenBox.Visible = false
+OpenBox.Active = true
+OpenBox.Draggable = true
+OpenBox.AutoButtonColor = false
+OpenBox.Parent = Gui
+addCorner(OpenBox, 15)
+addStroke(OpenBox, COLORS.ACCENT, 1.5)
+
+MinimizeButton.MouseButton1Click:Connect(function()
+    Main.Visible = false
+    OpenBox.Visible = true
+end)
+
+OpenBox.MouseButton1Click:Connect(function()
+    OpenBox.Visible = false
+    Main.Visible = true
+    selectTab(activeTabName)
+end)
+
+selectTab("Visual")
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if not processed and input.KeyCode == Enum.KeyCode.RightShift then
+        if Main.Visible then
+            Main.Visible = false
+            OpenBox.Visible = false
+        else
+            Main.Visible = true
+            OpenBox.Visible = false
+            selectTab(activeTabName)
+        end
+    end
+end)
+
+-- ============================================================
+-- END MATRIXHUB UI
+-- ============================================================
