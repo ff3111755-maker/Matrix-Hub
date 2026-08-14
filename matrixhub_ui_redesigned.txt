@@ -1,0 +1,766 @@
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local mouse = player:GetMouse()
+
+-- ============================================================
+-- VARIABLES GLOBALES
+-- ============================================================
+local GlobalVisualSettings = { AnimSpeedMultiplier = 1.0 }
+
+-- CONFIGURACIÓN ESP / AIMBOT / MOVIMIENTO / GLITCHES
+_G.G_ESPEnabled = false; _G.G_ESP_Name = true; _G.G_ESP_Level = true
+_G.G_ESP_Bounty = true; _G.G_ESP_Fruit = true; _G.G_ESP_Distance = true
+_G.G_ESP_HP = true; _G.G_ESP_TextSize = 12; _G.G_ESP_Highlight = false; _G.G_ESP_HighlightColor = "FF0000"
+
+local silentAimEnabled = false
+local silentPos = nil
+local cachedTarget = nil
+local selectedRange = 300
+local teamCheck = true
+local silentInstalled = false
+
+local NoclipEnabled = false
+local NoclipConn = nil
+
+local WalkOnWaterEnabled = false
+local WalkWaterPart = nil
+
+local PortalSoruEnabled = false
+local PortalSanguineCEnabled = false
+local PortalSanguineCTriggerMode = "PortalF"
+
+local antiLavaActive = false
+local antiLavaConnection = nil
+
+-- ============================================================
+-- 1. NOCLIP (SACRED AHK)
+-- ============================================================
+function SetNoclip(state)
+    NoclipEnabled = state
+    if state then
+        NoclipConn = RunService.Stepped:Connect(function()
+            local char = player.Character
+            if char and NoclipEnabled then
+                for _, part in pairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then part.CanCollide = false end
+                end
+            end
+        end)
+    else
+        if NoclipConn then NoclipConn:Disconnect(); NoclipConn = nil end
+        local char = player.Character
+        if char then
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanCollide = true end
+            end
+        end
+    end
+end
+
+player.CharacterAdded:Connect(function()
+    if NoclipEnabled then task.wait(0.5); SetNoclip(true) end
+end)
+
+-- ============================================================
+-- 2. WALK ON WATER (SACRED AHK)
+-- ============================================================
+local function getWaterPart()
+    if not WalkWaterPart or not WalkWaterPart.Parent then
+        WalkWaterPart = Instance.new("Part")
+        WalkWaterPart.Size = Vector3.new(200, 1, 200)
+        WalkWaterPart.Transparency = 1
+        WalkWaterPart.Anchored = true
+        WalkWaterPart.CanCollide = false
+        WalkWaterPart.Name = "SacredWaterPlatform"
+        WalkWaterPart.Parent = Workspace
+    end
+    return WalkWaterPart
+end
+
+spawn(function()
+    while true do
+        wait(0.15)
+        if WalkOnWaterEnabled then
+            local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+            local wp = getWaterPart()
+            if hrp and hrp.Position.Y >= 9.5 then
+                wp.Position = Vector3.new(hrp.Position.X, 9.2, hrp.Position.Z)
+                wp.CanCollide = true
+            else
+                wp.CanCollide = false
+            end
+        elseif WalkWaterPart and WalkWaterPart.Parent then
+            WalkWaterPart.CanCollide = false
+        end
+    end
+end)
+
+-- ============================================================
+-- 3. PORTAL COMBOS (SACRED AHK)
+-- ============================================================
+local function isHoldingPortalFruit()
+    local char = player.Character
+    if not char then return false end
+    local tool = char:FindFirstChildOfClass("Tool")
+    if tool then
+        local tName = string.lower(tool.Name)
+        if string.find(tName, "portal") or string.find(tName, "door") then return true end
+    end
+    return false
+end
+
+local function equipSanguineArt()
+    local char = player.Character
+    if not char then return nil end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return nil end
+    local tool = char:FindFirstChild("Sanguine Art") or char:FindFirstChild("Sanguine")
+    if not tool then
+        local bp = player:FindFirstChild("Backpack")
+        if bp then
+            for _, t in ipairs(bp:GetChildren()) do
+                local name = string.lower(t.Name)
+                if string.find(name, "sanguine") then
+                    hum:EquipTool(t)
+                    tool = t
+                    task.wait(0.1)
+                    break
+                end
+            end
+        end
+    end
+    return tool
+end
+
+local function equipPortalFruit()
+    local char = player.Character
+    if not char then return nil end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return nil end
+    local tool = char:FindFirstChild("Portal-Portal") or char:FindFirstChild("Portal Fruit") or char:FindFirstChild("Portal") or char:FindFirstChild("Door")
+    if not tool then
+        local bp = player:FindFirstChild("Backpack")
+        if bp then
+            for _, t in ipairs(bp:GetChildren()) do
+                local name = string.lower(t.Name)
+                if string.find(name, "portal") or string.find(name, "door") then
+                    hum:EquipTool(t)
+                    tool = t
+                    task.wait(0.1)
+                    break
+                end
+            end
+        end
+    end
+    return tool
+end
+
+local function doPortalCombo()
+    if not isHoldingPortalFruit() then
+        equipPortalFruit()
+        task.wait(0.08)
+    end
+    if not isHoldingPortalFruit() then return end
+    local function pressKey(kc)
+        VirtualInputManager:SendKeyEvent(true, kc, false, game)
+        task.wait(0.05)
+        VirtualInputManager:SendKeyEvent(false, kc, false, game)
+    end
+    pressKey(Enum.KeyCode.X)
+    task.wait(0.15)
+    pressKey(Enum.KeyCode.Z)
+end
+
+local function doPortalSanguineCCombo()
+    task.wait(0.25)
+    equipSanguineArt()
+    task.wait(0.1)
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.C, false, game)
+    task.wait(0.15)
+    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
+end
+
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.F then
+        if PortalSoruEnabled and isHoldingPortalFruit() then
+            task.spawn(doPortalCombo)
+        end
+        if PortalSanguineCEnabled then
+            task.spawn(doPortalSanguineCCombo)
+        end
+    end
+end)
+
+-- ============================================================
+-- 4. ANTI LAVA (SACRED AHK)
+-- ============================================================
+local function startAntiLava()
+    if antiLavaConnection then antiLavaConnection:Disconnect() end
+    local antiLavaTimer = 0
+    antiLavaConnection = RunService.Stepped:Connect(function(_, dt)
+        antiLavaTimer = antiLavaTimer + dt
+        if antiLavaTimer < 0.2 then return end
+        antiLavaTimer = 0
+        local char = player.Character
+        if not (char and antiLavaActive) then return end
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart"
+            and part.Name ~= "Torso" and part.Name ~= "UpperTorso"
+            and part.Name ~= "LowerTorso" and part.Name ~= "Head" then
+                part.CanTouch = false
+            end
+        end
+    end)
+end
+
+local function stopAntiLava()
+    if antiLavaConnection then antiLavaConnection:Disconnect(); antiLavaConnection = nil end
+end
+
+-- ============================================================
+-- SILENT AIM SIMPLE (HOOK FIRESERVER)
+-- ============================================================
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if not silentAimEnabled then cachedTarget = nil; continue end
+        pcall(function()
+            local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+            if not hrp then cachedTarget = nil; return end
+            local closest, closestDist = nil, selectedRange
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= player and p.Character then
+                    if not teamCheck or (player.Team ~= p.Team) then
+                        local eHRP = p.Character:FindFirstChild("HumanoidRootPart")
+                        local hum = p.Character:FindFirstChildOfClass("Humanoid")
+                        if eHRP and hum and hum.Health > 0 then
+                            local d = (eHRP.Position - hrp.Position).Magnitude
+                            if d < closestDist then closest = p; closestDist = d end
+                        end
+                    end
+                end
+            end
+            cachedTarget = closest
+        end)
+    end
+end)
+
+local function installSilentAim()
+    if silentInstalled then return end
+    silentInstalled = true
+    task.spawn(function()
+        while true do
+            task.wait(0.1)
+            if silentAimEnabled and cachedTarget then
+                pcall(function()
+                    local eHRP = cachedTarget.Character and cachedTarget.Character:FindFirstChild("HumanoidRootPart")
+                    silentPos = eHRP and eHRP.Position or nil
+                end)
+            else
+                silentPos = nil
+            end
+        end
+    end)
+    task.spawn(function()
+        local mt = getrawmetatable(game)
+        local oldNC = mt.__namecall
+        setreadonly(mt, false)
+        mt.__namecall = newcclosure(function(...)
+            local method = getnamecallmethod()
+            local args = {...}
+            if silentAimEnabled and silentPos and tostring(method) == "FireServer" and tostring(args[1]) == "RemoteEvent" then
+                if typeof(args[2]) == "Vector3" then args[2] = silentPos; return oldNC(unpack(args))
+                elseif typeof(args[2]) == "CFrame" then args[2] = CFrame.new(silentPos); return oldNC(unpack(args)) end
+            end
+            return oldNC(...)
+        end)
+        setreadonly(mt, true)
+    end)
+end
+installSilentAim()
+
+-- ============================================================
+-- ESP DE JUGADORES (ESTILO NEVAHUB)
+-- ============================================================
+local Number = math.random(1, 1000000)
+local PlayerEsp = false
+
+local function isnil(thing) return (thing == nil) end
+local function round(n) return math.floor(tonumber(n) + 0.5) end
+
+local function EspPly()
+    for _, v in next, game.Players:GetChildren() do
+        pcall(function()
+            if not isnil(v.Character) then
+                if PlayerEsp then
+                    if not isnil(v.Character.Head) and not v.Character.Head:FindFirstChild('NameEsp'..Number) then
+                        local bill = Instance.new('BillboardGui', v.Character.Head)
+                        bill.Name = 'NameEsp'..Number
+                        bill.ExtentsOffset = Vector3.new(0, 1, 0)
+                        bill.Size = UDim2.new(1, 200, 1, 30)
+                        bill.Adornee = v.Character.Head
+                        bill.AlwaysOnTop = true
+                        local name = Instance.new('TextLabel', bill)
+                        name.Font = Enum.Font.Code
+                        name.FontSize = "Size14"
+                        name.TextWrapped = true
+                        name.Size = UDim2.new(1, 0, 1, 0)
+                        name.TextYAlignment = 'Top'
+                        name.BackgroundTransparency = 1
+                        name.TextStrokeTransparency = 0.5
+                        name.Text = (v.Name .. ' \n' .. round((player.Character.Head.Position - v.Character.Head.Position).Magnitude / 3) .. ' M')
+                        if v.Team == player.Team then name.TextColor3 = Color3.new(0, 0, 254) else name.TextColor3 = Color3.new(255, 0, 0) end
+                    else
+                        if v.Character.Head:FindFirstChild('NameEsp'..Number) then
+                            local label = v.Character.Head['NameEsp'..Number].TextLabel
+                            label.Text = (v.Name .. ' | ' .. round((player.Character.Head.Position - v.Character.Head.Position).Magnitude / 3) .. ' M\nHealth : ' .. round(v.Character.Humanoid.Health * 100 / v.Character.Humanoid.MaxHealth) .. '%')
+                        end
+                    end
+                else
+                    if v.Character.Head:FindFirstChild('NameEsp'..Number) then v.Character.Head:FindFirstChild('NameEsp'..Number):Destroy() end
+                end
+            end
+        end)
+    end
+end
+
+-- ============================================================
+-- INTERFAZ MATRIXHUB // REDESIGNED UI
+-- ============================================================
+
+local COLORS = {
+    Background = Color3.fromRGB(10, 13, 19),
+    Surface = Color3.fromRGB(16, 21, 29),
+    Surface2 = Color3.fromRGB(21, 27, 37),
+    Surface3 = Color3.fromRGB(27, 34, 46),
+    Text = Color3.fromRGB(240, 244, 250),
+    Muted = Color3.fromRGB(137, 148, 164),
+    Accent = Color3.fromRGB(64, 156, 255),
+    Accent2 = Color3.fromRGB(113, 92, 255),
+    Success = Color3.fromRGB(55, 210, 145),
+    Danger = Color3.fromRGB(244, 84, 99),
+    White = Color3.fromRGB(255, 255, 255),
+    Off = Color3.fromRGB(37, 45, 58)
+}
+
+local Gui = Instance.new("ScreenGui")
+Gui.Name = "MatrixHubUI"
+Gui.ResetOnSpawn = false
+Gui.IgnoreGuiInset = true
+Gui.Parent = player:WaitForChild("PlayerGui")
+
+local function corner(obj, radius)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, radius or 8)
+    c.Parent = obj
+    return c
+end
+
+local function stroke(obj, color, thickness, transparency)
+    local s = Instance.new("UIStroke")
+    s.Color = color or COLORS.Surface3
+    s.Thickness = thickness or 1
+    s.Transparency = transparency or 0
+    s.Parent = obj
+    return s
+end
+
+local function padding(obj, px)
+    local p = Instance.new("UIPadding")
+    p.PaddingLeft = UDim.new(0, px)
+    p.PaddingRight = UDim.new(0, px)
+    p.PaddingTop = UDim.new(0, px)
+    p.PaddingBottom = UDim.new(0, px)
+    p.Parent = obj
+    return p
+end
+
+local function makeLabel(parent, text, size, color, font)
+    local l = Instance.new("TextLabel")
+    l.BackgroundTransparency = 1
+    l.Text = text
+    l.TextSize = size or 12
+    l.TextColor3 = color or COLORS.Text
+    l.Font = font or Enum.Font.GothamMedium
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.Parent = parent
+    return l
+end
+
+local Main = Instance.new("Frame")
+Main.Name = "Main"
+Main.Size = UDim2.fromOffset(540, 365)
+Main.Position = UDim2.new(0.5, -270, 0.5, -182)
+Main.BackgroundColor3 = COLORS.Background
+Main.BorderSizePixel = 0
+Main.ClipsDescendants = true
+Main.Active = true
+Main.Draggable = true
+Main.Parent = Gui
+corner(Main, 12)
+stroke(Main, COLORS.Surface3, 1)
+
+-- Header
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 64)
+Header.BackgroundColor3 = COLORS.Surface
+Header.BorderSizePixel = 0
+Header.Parent = Main
+
+local Logo = Instance.new("Frame")
+Logo.Size = UDim2.fromOffset(38, 38)
+Logo.Position = UDim2.fromOffset(14, 13)
+Logo.BackgroundColor3 = COLORS.Accent
+Logo.BorderSizePixel = 0
+Logo.Parent = Header
+corner(Logo, 10)
+
+local LogoText = makeLabel(Logo, "M", 19, COLORS.White, Enum.Font.GothamBlack)
+LogoText.Size = UDim2.fromScale(1, 1)
+LogoText.TextXAlignment = Enum.TextXAlignment.Center
+
+local Title = makeLabel(Header, "MATRIXHUB", 17, COLORS.Text, Enum.Font.GothamBlack)
+Title.Position = UDim2.fromOffset(64, 11)
+Title.Size = UDim2.fromOffset(180, 24)
+
+local Subtitle = makeLabel(Header, "CONTROL CENTER  •  v2", 9, COLORS.Muted, Enum.Font.GothamMedium)
+Subtitle.Position = UDim2.fromOffset(65, 34)
+Subtitle.Size = UDim2.fromOffset(200, 18)
+
+local Status = makeLabel(Header, "●  ONLINE", 9, COLORS.Success, Enum.Font.GothamBold)
+Status.Position = UDim2.new(1, -170, 0, 23)
+Status.Size = UDim2.fromOffset(85, 18)
+Status.TextXAlignment = Enum.TextXAlignment.Right
+
+local MinimizeButton = Instance.new("TextButton")
+MinimizeButton.Size = UDim2.fromOffset(30, 30)
+MinimizeButton.Position = UDim2.new(1, -44, 0, 17)
+MinimizeButton.BackgroundColor3 = COLORS.Surface2
+MinimizeButton.Text = "—"
+MinimizeButton.TextColor3 = COLORS.Muted
+MinimizeButton.Font = Enum.Font.GothamBold
+MinimizeButton.TextSize = 15
+MinimizeButton.AutoButtonColor = false
+MinimizeButton.BorderSizePixel = 0
+MinimizeButton.Parent = Header
+corner(MinimizeButton, 8)
+
+-- Sidebar
+local Sidebar = Instance.new("Frame")
+Sidebar.Position = UDim2.fromOffset(10, 74)
+Sidebar.Size = UDim2.fromOffset(128, 281)
+Sidebar.BackgroundColor3 = COLORS.Surface
+Sidebar.BorderSizePixel = 0
+Sidebar.Parent = Main
+corner(Sidebar, 10)
+stroke(Sidebar, COLORS.Surface3, 1)
+
+local SideTitle = makeLabel(Sidebar, "MODULES", 9, COLORS.Muted, Enum.Font.GothamBold)
+SideTitle.Position = UDim2.fromOffset(14, 12)
+SideTitle.Size = UDim2.fromOffset(100, 18)
+
+local Tabs, Pages = {}, {}
+local tabNames = { "Visual", "Combat", "Misc", "Whitelist", "Teleport" }
+local tabIcons = { Visual = "◉", Combat = "✦", Misc = "⚙", Whitelist = "◇", Teleport = "⌖" }
+local activeTabName = "Visual"
+
+local Content = Instance.new("Frame")
+Content.Position = UDim2.fromOffset(148, 74)
+Content.Size = UDim2.new(1, -158, 1, -84)
+Content.BackgroundColor3 = COLORS.Surface
+Content.BorderSizePixel = 0
+Content.Parent = Main
+corner(Content, 10)
+stroke(Content, COLORS.Surface3, 1)
+
+local ContentTitle = makeLabel(Content, "VISUAL", 13, COLORS.Text, Enum.Font.GothamBold)
+ContentTitle.Position = UDim2.fromOffset(15, 12)
+ContentTitle.Size = UDim2.fromOffset(220, 22)
+
+local ContentHint = makeLabel(Content, "Player information & overlays", 9, COLORS.Muted, Enum.Font.GothamMedium)
+ContentHint.Position = UDim2.fromOffset(15, 34)
+ContentHint.Size = UDim2.fromOffset(300, 18)
+
+local ContentBody = Instance.new("Frame")
+ContentBody.Position = UDim2.fromOffset(12, 59)
+ContentBody.Size = UDim2.new(1, -24, 1, -69)
+ContentBody.BackgroundTransparency = 1
+ContentBody.Parent = Content
+
+local function selectTab(name)
+    activeTabName = name
+    ContentTitle.Text = string.upper(name)
+
+    local hints = {
+        Visual = "Player information & overlays",
+        Combat = "Combat assistance & movement",
+        Misc = "Utility and automation",
+        Whitelist = "Player access controls",
+        Teleport = "Teleport destinations"
+    }
+    ContentHint.Text = hints[name] or ""
+
+    for tName, tab in pairs(Tabs) do
+        local selected = tName == name
+        tab.BackgroundColor3 = selected and COLORS.Accent or COLORS.Surface
+        tab.Icon.TextColor3 = selected and COLORS.White or COLORS.Muted
+        tab.Text.TextColor3 = selected and COLORS.White or COLORS.Muted
+        if Pages[tName] then Pages[tName].Visible = selected end
+    end
+end
+
+for i, name in ipairs(tabNames) do
+    local tab = Instance.new("TextButton")
+    tab.Name = name .. "Tab"
+    tab.Size = UDim2.new(1, -16, 0, 39)
+    tab.Position = UDim2.fromOffset(8, 36 + (i - 1) * 44)
+    tab.BackgroundColor3 = COLORS.Surface
+    tab.AutoButtonColor = false
+    tab.Text = ""
+    tab.BorderSizePixel = 0
+    tab.Parent = Sidebar
+    corner(tab, 8)
+
+    local icon = makeLabel(tab, tabIcons[name], 14, COLORS.Muted, Enum.Font.GothamBold)
+    icon.Position = UDim2.fromOffset(11, 0)
+    icon.Size = UDim2.fromOffset(24, 39)
+    icon.TextXAlignment = Enum.TextXAlignment.Center
+
+    local txt = makeLabel(tab, name, 10, COLORS.Muted, Enum.Font.GothamBold)
+    txt.Position = UDim2.fromOffset(39, 0)
+    txt.Size = UDim2.new(1, -45, 1, 0)
+
+    Tabs[name] = { Button = tab, Icon = icon, Text = txt }
+    tab.MouseButton1Click:Connect(function() selectTab(name) end)
+end
+
+local function createToggle(parent, text, default, callback, description)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, description and 52 or 44)
+    row.BackgroundColor3 = COLORS.Surface2
+    row.BorderSizePixel = 0
+    row.Parent = parent
+    corner(row, 8)
+
+    local lbl = makeLabel(row, text, 10, COLORS.Text, Enum.Font.GothamSemibold)
+    lbl.Position = UDim2.fromOffset(12, description and 8 or 0)
+    lbl.Size = UDim2.new(1, -70, description and 19 or 44, 0)
+
+    if description then
+        local sub = makeLabel(row, description, 8, COLORS.Muted, Enum.Font.GothamMedium)
+        sub.Position = UDim2.fromOffset(12, 27)
+        sub.Size = UDim2.new(1, -70, 16, 0)
+    end
+
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.fromOffset(42, 22)
+    button.Position = UDim2.new(1, -54, 0.5, -11)
+    button.BackgroundColor3 = default and COLORS.Accent or COLORS.Off
+    button.Text = ""
+    button.AutoButtonColor = false
+    button.BorderSizePixel = 0
+    button.Parent = row
+    corner(button, 12)
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.fromOffset(16, 16)
+    knob.Position = default and UDim2.new(1, -19, 0.5, -8) or UDim2.fromOffset(3, 3)
+    knob.BackgroundColor3 = COLORS.White
+    knob.BorderSizePixel = 0
+    knob.Parent = button
+    corner(knob, 8)
+
+    local state = default
+    button.MouseButton1Click:Connect(function()
+        state = not state
+        TweenService:Create(button, TweenInfo.new(0.14), {
+            BackgroundColor3 = state and COLORS.Accent or COLORS.Off
+        }):Play()
+        TweenService:Create(knob, TweenInfo.new(0.14), {
+            Position = state and UDim2.new(1, -19, 0.5, -8) or UDim2.fromOffset(3, 3)
+        }):Play()
+        if callback then callback(state) end
+    end)
+
+    return row
+end
+
+local function createPage(isScrollable)
+    local page = Instance.new("Frame")
+    page.Name = "Page"
+    page.BackgroundTransparency = 1
+    page.Size = UDim2.fromScale(1, 1)
+    page.Visible = false
+    page.Parent = ContentBody
+
+    local left, right
+    if isScrollable then
+        left = Instance.new("ScrollingFrame")
+        right = Instance.new("ScrollingFrame")
+        for _, scroller in ipairs({left, right}) do
+            scroller.BackgroundTransparency = 1
+            scroller.BorderSizePixel = 0
+            scroller.ScrollBarThickness = 3
+            scroller.ScrollBarImageColor3 = COLORS.Accent
+            scroller.CanvasSize = UDim2.new()
+            scroller.AutomaticCanvasSize = Enum.AutomaticSize.Y
+            scroller.Parent = page
+        end
+    else
+        left = Instance.new("Frame")
+        right = Instance.new("Frame")
+        left.BackgroundTransparency = 1
+        right.BackgroundTransparency = 1
+        left.Parent = page
+        right.Parent = page
+    end
+
+    left.Position = UDim2.fromScale(0, 0)
+    left.Size = UDim2.new(0.5, -5, 1, 0)
+    right.Position = UDim2.new(0.5, 5, 0, 0)
+    right.Size = UDim2.new(0.5, -5, 1, 0)
+
+    for _, column in ipairs({left, right}) do
+        local layout = Instance.new("UIListLayout")
+        layout.Padding = UDim.new(0, 6)
+        layout.SortOrder = Enum.SortOrder.LayoutOrder
+        layout.Parent = column
+    end
+
+    return page, left, right
+end
+
+-- Pages
+local visual, vl, vr = createPage(true)
+createToggle(vl, "ESP Player", PlayerEsp, function(v)
+    PlayerEsp = v
+    if not v then
+        for _, target in ipairs(Players:GetPlayers()) do
+            pcall(function()
+                if target.Character and target.Character:FindFirstChild("Head") then
+                    local esp = target.Character.Head:FindFirstChild("NameEsp" .. Number)
+                    if esp then esp:Destroy() end
+                end
+            end)
+        end
+    else
+        task.spawn(function()
+            while PlayerEsp do EspPly(); task.wait() end
+        end)
+    end
+end, "Names, distance and health")
+
+local combat, cl, cr = createPage(true)
+createToggle(cl, "Silent Aim", silentAimEnabled, function(v)
+    silentAimEnabled = v
+    if not v then cachedTarget = nil; silentPos = nil end
+end, "Nearest target selection")
+createToggle(cl, "Portal Soru Combo", PortalSoruEnabled, function(v) PortalSoruEnabled = v end, "F key trigger")
+createToggle(cl, "Portal Sanguine C", PortalSanguineCEnabled, function(v) PortalSanguineCEnabled = v end, "F key trigger")
+createToggle(cl, "Noclip", NoclipEnabled, function(v) SetNoclip(v) end, "Disable character collision")
+
+local misc, ml, mr = createPage(true)
+createToggle(ml, "Walk on Water", WalkOnWaterEnabled, function(v) WalkOnWaterEnabled = v end, "Temporary water platform")
+createToggle(ml, "Anti Lava", antiLavaActive, function(v)
+    antiLavaActive = v
+    if v then startAntiLava() else stopAntiLava() end
+end, "Reduce lava contact")
+createToggle(ml, "Macro Beta", MacroEnabled, function(v)
+    MacroEnabled = v
+    if v then
+        showMacroConfigUI()
+        showFloatingComboTrigger(MacroMode == "Combo")
+    else
+        MacroExecuting = false
+        if macroGui then macroGui:Destroy(); macroGui=nil end
+        showFloatingComboTrigger(false)
+    end
+end, "Automated combo configuration")
+createToggle(ml, "Macro Combo Mode", MacroMode == "Combo", function(v)
+    MacroMode = v and "Combo" or "Soru"
+    if MacroEnabled then showFloatingComboTrigger(v) else showFloatingComboTrigger(false) end
+end, "Hold the floating trigger")
+
+local macroConfigBtn = Instance.new("TextButton")
+macroConfigBtn.Size = UDim2.new(1, 0, 0, 42)
+macroConfigBtn.BackgroundColor3 = COLORS.Surface2
+macroConfigBtn.Text = "  MACRO CONFIGURATION"
+macroConfigBtn.TextColor3 = COLORS.Accent
+macroConfigBtn.Font = Enum.Font.GothamBold
+macroConfigBtn.TextSize = 9
+macroConfigBtn.TextXAlignment = Enum.TextXAlignment.Left
+macroConfigBtn.AutoButtonColor = false
+macroConfigBtn.BorderSizePixel = 0
+macroConfigBtn.Parent = ml
+corner(macroConfigBtn, 8)
+stroke(macroConfigBtn, COLORS.Surface3, 1)
+macroConfigBtn.MouseButton1Click:Connect(showMacroConfigUI)
+
+local whitelist, wl, wr = createPage(false)
+local emptyWl = makeLabel(wl, "WHITELIST", 12, COLORS.Muted, Enum.Font.GothamBold)
+emptyWl.Size = UDim2.new(1, 0, 0, 50)
+
+local teleport, tl, tr = createPage(false)
+local emptyTp = makeLabel(tl, "TELEPORT", 12, COLORS.Muted, Enum.Font.GothamBold)
+emptyTp.Size = UDim2.new(1, 0, 0, 50)
+
+Pages.Visual = visual
+Pages.Combat = combat
+Pages.Misc = misc
+Pages.Whitelist = whitelist
+Pages.Teleport = teleport
+
+-- Minimized launcher
+local OpenBox = Instance.new("TextButton")
+OpenBox.Name = "OpenBox"
+OpenBox.Size = UDim2.fromOffset(52, 52)
+OpenBox.Position = UDim2.new(0, 18, 0.5, -26)
+OpenBox.BackgroundColor3 = COLORS.Surface
+OpenBox.Text = "M"
+OpenBox.TextColor3 = COLORS.Accent
+OpenBox.Font = Enum.Font.GothamBlack
+OpenBox.TextSize = 20
+OpenBox.Visible = false
+OpenBox.Active = true
+OpenBox.Draggable = true
+OpenBox.Parent = Gui
+corner(OpenBox, 14)
+stroke(OpenBox, COLORS.Accent, 1.5)
+
+MinimizeButton.MouseButton1Click:Connect(function()
+    Main.Visible = false
+    OpenBox.Visible = true
+end)
+
+OpenBox.MouseButton1Click:Connect(function()
+    OpenBox.Visible = false
+    Main.Visible = true
+    selectTab(activeTabName)
+end)
+
+selectTab("Visual")
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if not processed and input.KeyCode == Enum.KeyCode.RightShift then
+        if Main.Visible then
+            Main.Visible = false
+            OpenBox.Visible = false
+        else
+            Main.Visible = true
+            OpenBox.Visible = false
+            selectTab(activeTabName)
+        end
+    end
+end)
+
+
+-- MatrixHub UI initialized.
